@@ -9,6 +9,7 @@ import {
   Platform,
   AnalysisReport,
   TrainingTask,
+  TrainingPlan,
 } from './types';
 import { computeStatsAnalysis } from './analysisEngine';
 
@@ -37,9 +38,16 @@ interface ChessContextValue {
   runEngineAnalysis: () => void;
   engineProgress: EngineProgress | null;
   isEngineRunning: boolean;
+  // Legacy 7-day (kept for backward compat, unused by new UI)
   trainingTasks: TrainingTask[];
   initTrainingMutation: ReturnType<typeof useMutation<TrainingTask[], Error, void>>;
   toggleTask: (taskId: string) => void;
+  // 8-week plan
+  trainingPlan: TrainingPlan | null;
+  generatePlanMutation: ReturnType<typeof useMutation<TrainingPlan, Error, void>>;
+  toggleModule: (weekNum: number, moduleId: string) => void;
+  setCurrentWeek: (week: number) => void;
+  clearTrainingPlan: () => void;
 }
 
 const ChessContext = createContext<ChessContextValue | null>(null);
@@ -52,6 +60,7 @@ export function ChessProvider({ children }: { children: React.ReactNode }) {
   const [analysisReport, setAnalysisReport] = useState<AnalysisReport | null>(null);
   const [engineProgress, setEngineProgress] = useState<EngineProgress | null>(null);
   const [isEngineRunning, setIsEngineRunning] = useState(false);
+  const [trainingPlan, setTrainingPlan] = useState<TrainingPlan | null>(null);
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -66,6 +75,8 @@ export function ChessProvider({ children }: { children: React.ReactNode }) {
       if (storedTasks) setTrainingTasks(JSON.parse(storedTasks));
       const storedAnalysis = localStorage.getItem('chessmind_analysis');
       if (storedAnalysis) setAnalysisReport(JSON.parse(storedAnalysis));
+      const storedPlan = localStorage.getItem('chessmind_plan');
+      if (storedPlan) setTrainingPlan(JSON.parse(storedPlan));
     } catch {
       // ignore parse errors
     } finally {
@@ -94,21 +105,21 @@ export function ChessProvider({ children }: { children: React.ReactNode }) {
     setUsername(null);
     setAnalysisReport(null);
     setTrainingTasks([]);
+    setTrainingPlan(null);
     localStorage.removeItem('chessmind_user');
     localStorage.removeItem('chessmind_training');
     localStorage.removeItem('chessmind_analysis');
+    localStorage.removeItem('chessmind_plan');
     queryClient.clear();
   }, [queryClient]);
 
   const runAnalysisMutation = useMutation({
     mutationFn: async () => {
-      // Fetch games to analyze
       const res = await fetch(`/api/chess/games?username=${encodeURIComponent(username!)}&platform=${encodeURIComponent(platform)}`);
       if (!res.ok) throw new Error('Failed to fetch games for analysis');
       const games: ChessGame[] = await res.json();
       if (games.length === 0) throw new Error('No games found to analyze');
 
-      // Fetch stats for best rating
       let bestRating: number | undefined;
       try {
         const statsRes = await fetch(`/api/chess/stats?username=${encodeURIComponent(username!)}&platform=${encodeURIComponent(platform)}`);
@@ -131,9 +142,9 @@ export function ChessProvider({ children }: { children: React.ReactNode }) {
     },
   });
 
+  // Legacy 7-day training mutation (kept for backward compat)
   const initTrainingMutation = useMutation({
     mutationFn: async () => {
-      // Require analysis first — if none exists, run it
       let report = analysisReport;
       if (!report) {
         const res = await fetch(`/api/chess/games?username=${encodeURIComponent(username!)}&platform=${encodeURIComponent(platform)}`);
@@ -143,13 +154,86 @@ export function ChessProvider({ children }: { children: React.ReactNode }) {
         setAnalysisReport(report);
         localStorage.setItem('chessmind_analysis', JSON.stringify(report));
       }
-      // Training planner will be implemented in Phase 4 — for now generate placeholder tasks from analysis
-      const { generateTrainingPlan } = await import('./trainingPlanner');
-      return generateTrainingPlan(report);
+      // This import is kept for backward compat but the new UI uses generatePlanMutation
+      const { generate8WeekPlan } = await import('./trainingPlanner');
+      // Generate plan and extract flat tasks for legacy compat
+      const { extractPlayerDiagnostic, generateDiagnostic } = await import('./diagnosticEngine');
+      const gamesRes = await fetch(`/api/chess/games?username=${encodeURIComponent(username!)}&platform=${encodeURIComponent(platform)}`);
+      const games: ChessGame[] = gamesRes.ok ? await gamesRes.json() : [];
+      let stats: ChessStats | null = null;
+      try {
+        const statsRes = await fetch(`/api/chess/stats?username=${encodeURIComponent(username!)}&platform=${encodeURIComponent(platform)}`);
+        if (statsRes.ok) stats = await statsRes.json();
+      } catch { /* no stats */ }
+      const playerDiag = extractPlayerDiagnostic(games, stats, username!, platform);
+      const diagnosis = generateDiagnostic(playerDiag);
+      const plan = generate8WeekPlan(playerDiag, diagnosis);
+      setTrainingPlan(plan);
+      localStorage.setItem('chessmind_plan', JSON.stringify(plan));
+      // Return flat tasks from week 1 for legacy compat
+      return plan.weeks[0]?.days.map((d) => ({
+        id: d.id,
+        title: d.title,
+        description: d.description,
+        category: d.category === 'play' ? 'strategy' as const : d.category,
+        day: d.dayOfWeek,
+        completed: d.completed,
+        lichessUrl: d.lichessUrl,
+        puzzleTheme: d.puzzleTheme,
+        estimatedMinutes: d.estimatedMinutes,
+        source: d.source === 'archetype' ? 'general' as const : d.source,
+        rationale: d.rationale,
+      })) || [];
     },
     onSuccess: (tasks) => {
       setTrainingTasks(tasks);
       localStorage.setItem('chessmind_training', JSON.stringify(tasks));
+    },
+  });
+
+  // 8-week plan generation
+  const generatePlanMutation = useMutation({
+    mutationFn: async () => {
+      // Fetch games
+      const gamesRes = await fetch(`/api/chess/games?username=${encodeURIComponent(username!)}&platform=${encodeURIComponent(platform)}`);
+      if (!gamesRes.ok) throw new Error('Failed to fetch games');
+      const games: ChessGame[] = await gamesRes.json();
+      if (games.length === 0) throw new Error('No games found — play some games first');
+
+      // Fetch stats
+      let stats: ChessStats | null = null;
+      try {
+        const statsRes = await fetch(`/api/chess/stats?username=${encodeURIComponent(username!)}&platform=${encodeURIComponent(platform)}`);
+        if (statsRes.ok) stats = await statsRes.json();
+      } catch { /* proceed without stats */ }
+
+      // Run analysis if not yet done
+      if (!analysisReport) {
+        const report = computeStatsAnalysis(games, username!);
+        setAnalysisReport(report);
+        localStorage.setItem('chessmind_analysis', JSON.stringify(report));
+      }
+
+      const { extractPlayerDiagnostic, generateDiagnostic } = await import('./diagnosticEngine');
+      const { generate8WeekPlan } = await import('./trainingPlanner');
+
+      const playerDiag = extractPlayerDiagnostic(games, stats, username!, platform);
+      const diagnosis = generateDiagnostic(playerDiag);
+      const plan = generate8WeekPlan(playerDiag, diagnosis);
+
+      // Track regeneration
+      const existing = trainingPlan;
+      if (existing) {
+        plan.regenerationCount = existing.regenerationCount + 1;
+        // Preserve rating log
+        plan.ratingLog = [...existing.ratingLog, { date: Date.now(), rating: playerDiag.currentRating, note: 'Plan regenerated' }];
+      }
+
+      return plan;
+    },
+    onSuccess: (plan) => {
+      setTrainingPlan(plan);
+      localStorage.setItem('chessmind_plan', JSON.stringify(plan));
     },
   });
 
@@ -175,7 +259,6 @@ export function ChessProvider({ children }: { children: React.ReactNode }) {
         setEngineProgress(progress);
       });
 
-      // Merge engine results into the existing analysis report
       const enhanced: AnalysisReport = {
         ...analysisReport,
         engineEnhanced: true,
@@ -207,6 +290,43 @@ export function ChessProvider({ children }: { children: React.ReactNode }) {
     [trainingTasks]
   );
 
+  const toggleModule = useCallback(
+    (weekNum: number, moduleId: string) => {
+      if (!trainingPlan) return;
+      const updated = {
+        ...trainingPlan,
+        weeks: trainingPlan.weeks.map((w) => {
+          if (w.weekNumber !== weekNum) return w;
+          const days = w.days.map((d) =>
+            d.id === moduleId ? { ...d, completed: !d.completed } : d
+          );
+          const allDone = days.every((d) => d.completed);
+          return { ...w, days, completed: allDone };
+        }),
+      };
+      setTrainingPlan(updated);
+      localStorage.setItem('chessmind_plan', JSON.stringify(updated));
+    },
+    [trainingPlan]
+  );
+
+  const setCurrentWeek = useCallback(
+    (week: number) => {
+      if (!trainingPlan) return;
+      const updated = { ...trainingPlan, currentWeek: week };
+      setTrainingPlan(updated);
+      localStorage.setItem('chessmind_plan', JSON.stringify(updated));
+    },
+    [trainingPlan]
+  );
+
+  const clearTrainingPlan = useCallback(() => {
+    setTrainingPlan(null);
+    setTrainingTasks([]);
+    localStorage.removeItem('chessmind_plan');
+    localStorage.removeItem('chessmind_training');
+  }, []);
+
   return (
     <ChessContext.Provider
       value={{
@@ -224,6 +344,11 @@ export function ChessProvider({ children }: { children: React.ReactNode }) {
         trainingTasks,
         initTrainingMutation,
         toggleTask,
+        trainingPlan,
+        generatePlanMutation,
+        toggleModule,
+        setCurrentWeek,
+        clearTrainingPlan,
       }}
     >
       {children}

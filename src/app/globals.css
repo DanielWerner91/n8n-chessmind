@@ -1,24 +1,27 @@
 @import "tailwindcss";
 
 @theme inline {
-  --color-background: #0D1B2A;
-  --color-surface: #152238;
-  --color-card: #1B2A3F;
-  --color-card-light: #243B55;
-  --color-gold: #F4C542;
-  --color-gold-dark: #C9A030;
-  --color-gold-light: #FFE082;
+  --color-background: #0f1623;
+  --color-surface: #1a2332;
+  --color-card: #1e2a3a;
+  --color-card-light: #283848;
+  --color-gold: #10B981;
+  --color-gold-dark: #059669;
+  --color-gold-light: #6EE7B7;
   --color-win: #4CAF50;
   --color-loss: #EF5350;
   --color-draw: #78909C;
-  --color-border: #2A3A4D;
-  --color-tab-bar: #0A1525;
-  --color-accent: #3B82F6;
-  --color-board-light: #F0D9B5;
-  --color-board-dark: #B58863;
+  --color-border: #2A3648;
+  --color-tab-bar: #0A1220;
+  --color-accent: #10B981;
   --color-text-primary: #FFFFFF;
-  --color-text-secondary: #8B9DB5;
+  --color-text-secondary: #8B9CB5;
   --color-text-tertiary: #5A6B80;
+
+  --animate-shimmer-slide: shimmer-slide var(--speed) ease-in-out infinite alternate;
+  --animate-spin-around: spin-around calc(var(--speed) * 2) infinite linear;
+  --animate-shiny-text: shiny-text 8s infinite;
+  --animate-background-position-spin: background-position-spin 3000ms infinite alternate;
 }
 
 body {
@@ -26,6 +29,8 @@ body {
   color: var(--color-text-primary);
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
 }
+
+/* --- Base animations --- */
 
 @keyframes fadeSlideUp {
   from { opacity: 0; transform: translateY(30px); }
@@ -45,6 +50,45 @@ body {
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 8px rgba(16, 185, 129, 0.2); }
+  50% { box-shadow: 0 0 24px rgba(16, 185, 129, 0.5), 0 0 48px rgba(16, 185, 129, 0.15); }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+
+/* --- 21st.dev ShimmerButton keyframes --- */
+
+@keyframes shimmer-slide {
+  to { transform: translate(calc(100cqw - 100%), 0); }
+}
+
+@keyframes spin-around {
+  0% { transform: translateZ(0) rotate(0); }
+  15%, 35% { transform: translateZ(0) rotate(90deg); }
+  65%, 85% { transform: translateZ(0) rotate(270deg); }
+  100% { transform: translateZ(0) rotate(360deg); }
+}
+
+/* --- 21st.dev AnimatedShinyText keyframes --- */
+
+@keyframes shiny-text {
+  0%, 90%, 100% { background-position: calc(-100% - var(--shiny-width)) 0; }
+  30%, 60% { background-position: calc(100% + var(--shiny-width)) 0; }
+}
+
+/* --- 21st.dev NeonGradientCard keyframes --- */
+
+@keyframes background-position-spin {
+  0% { background-position: top center; }
+  100% { background-position: bottom center; }
+}
+
+/* --- Utility classes --- */
 
 .animate-hero {
   animation: fadeSlideUp 0.8s ease forwards;
@@ -67,6 +111,14 @@ body {
   animation: spin 1s linear infinite;
 }
 
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 6px;
@@ -77,4 +129,13 @@ body {
 ::-webkit-scrollbar-thumb {
   background: var(--color-border);
   border-radius: 3px;
+}
+
+/* Reduce motion for accessibility */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

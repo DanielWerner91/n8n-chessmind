@@ -28,7 +28,7 @@ function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
 
 export default function SettingsPage() {
   const router = useRouter();
-  const { username, platform, disconnect, analysisReport, trainingTasks } = useChess();
+  const { username, platform, disconnect, analysisReport, trainingTasks, trainingPlan, clearTrainingPlan } = useChess();
   const [autoSync, setAutoSync] = useState(false);
   const [notifications, setNotifications] = useState(true);
 
@@ -39,12 +39,14 @@ export default function SettingsPage() {
   }, [disconnect, router]);
 
   const handleClearData = useCallback(() => {
-    if (window.confirm('This will clear your AI analysis report and training plan. Your game data will remain.')) {
+    if (window.confirm('This will clear your analysis report and training plan. Your game data will remain.')) {
       localStorage.removeItem('chessmind_analysis');
       localStorage.removeItem('chessmind_training');
+      localStorage.removeItem('chessmind_plan');
+      clearTrainingPlan();
       window.location.reload();
     }
-  }, []);
+  }, [clearTrainingPlan]);
 
   return (
     <div className="px-5 pt-4 pb-8">
@@ -82,7 +84,7 @@ export default function SettingsPage() {
         <div className="h-px ml-14" style={{ backgroundColor: Colors.border }} />
         <div className="flex items-center justify-between p-3.5">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'rgba(244,197,66,0.15)' }}>
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'rgba(16,185,129,0.15)' }}>
               <RefreshCw size={16} className="text-gold" />
             </div>
             <div>
@@ -139,14 +141,14 @@ export default function SettingsPage() {
         </div>
         <div className="h-px ml-14" style={{ backgroundColor: Colors.border }} />
         <div className="flex items-center p-3.5 gap-3">
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'rgba(244,197,66,0.15)' }}>
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'rgba(16,185,129,0.15)' }}>
             <RefreshCw size={16} className="text-gold" />
           </div>
           <div>
-            <p className="text-white text-sm font-medium">Training Tasks</p>
+            <p className="text-white text-sm font-medium">Training Plan</p>
             <p className="text-text-tertiary text-xs mt-0.5">
-              {trainingTasks.length > 0
-                ? `${trainingTasks.filter((t) => t.completed).length}/${trainingTasks.length} completed`
+              {trainingPlan
+                ? `8-week plan · Week ${trainingPlan.currentWeek}`
                 : 'No plan yet'}
             </p>
           </div>
