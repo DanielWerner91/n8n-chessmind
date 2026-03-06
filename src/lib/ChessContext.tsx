@@ -10,8 +10,17 @@ import {
   AnalysisReport,
   TrainingTask,
   TrainingPlan,
+  GamificationState,
 } from './types';
 import { computeStatsAnalysis } from './analysisEngine';
+import {
+  defaultGamificationState,
+  computeLevel,
+  updateStreak,
+  getTodayString,
+  getPhaseForWeek,
+  BADGE_CATALOG,
+} from './gamification';
 
 interface StoredUser {
   username: string;
@@ -48,6 +57,8 @@ interface ChessContextValue {
   toggleModule: (weekNum: number, moduleId: string) => void;
   setCurrentWeek: (week: number) => void;
   clearTrainingPlan: () => void;
+  // Gamification
+  dismissWelcome: () => void;
 }
 
 const ChessContext = createContext<ChessContextValue | null>(null);
@@ -76,7 +87,31 @@ export function ChessProvider({ children }: { children: React.ReactNode }) {
       const storedAnalysis = localStorage.getItem('chessmind_analysis');
       if (storedAnalysis) setAnalysisReport(JSON.parse(storedAnalysis));
       const storedPlan = localStorage.getItem('chessmind_plan');
-      if (storedPlan) setTrainingPlan(JSON.parse(storedPlan));
+      if (storedPlan) {
+        const plan = JSON.parse(storedPlan) as TrainingPlan;
+        // Migrate: add gamification defaults for existing plans
+        if (!plan.gamification) {
+          plan.gamification = defaultGamificationState();
+          let xp = 0;
+          for (const week of plan.weeks) {
+            for (const day of week.days) {
+              if (day.completed) xp += day.estimatedMinutes || 15;
+            }
+            if (!week.phase) {
+              const { phase, phaseName } = getPhaseForWeek(week.weekNumber);
+              week.phase = phase;
+              week.phaseName = phaseName;
+            }
+          }
+          plan.gamification.xp = xp;
+          plan.gamification.level = computeLevel(xp);
+        }
+        if (plan.welcomeDismissed === undefined) {
+          plan.welcomeDismissed = true; // existing users skip welcome
+        }
+        setTrainingPlan(plan);
+        localStorage.setItem('chessmind_plan', JSON.stringify(plan));
+      }
     } catch {
       // ignore parse errors
     } finally {
@@ -293,7 +328,16 @@ export function ChessProvider({ children }: { children: React.ReactNode }) {
   const toggleModule = useCallback(
     (weekNum: number, moduleId: string) => {
       if (!trainingPlan) return;
-      const updated = {
+
+      // Find the module being toggled
+      const week = trainingPlan.weeks.find((w) => w.weekNumber === weekNum);
+      const mod = week?.days.find((d) => d.id === moduleId);
+      if (!mod) return;
+
+      const wasCompleted = mod.completed;
+      const xpDelta = mod.estimatedMinutes || 15;
+
+      const updated: TrainingPlan = {
         ...trainingPlan,
         weeks: trainingPlan.weeks.map((w) => {
           if (w.weekNumber !== weekNum) return w;
@@ -304,6 +348,69 @@ export function ChessProvider({ children }: { children: React.ReactNode }) {
           return { ...w, days, completed: allDone };
         }),
       };
+
+      // Update gamification
+      const gam: GamificationState = { ...(updated.gamification || defaultGamificationState()) };
+      gam.badges = [...gam.badges];
+      gam.weekMilestones = { ...gam.weekMilestones };
+      gam.phaseCompletions = { ...gam.phaseCompletions };
+
+      if (!wasCompleted) {
+        // Completing a module
+        gam.xp += xpDelta;
+        gam.level = computeLevel(gam.xp);
+        gam.streak = updateStreak({ ...gam.streak }, getTodayString());
+
+        // First module badge
+        if (!gam.badges.some((b) => b.id === 'first-module')) {
+          const def = BADGE_CATALOG['first-module'];
+          gam.badges.push({ id: 'first-module', name: def.name, description: def.description, earnedAt: Date.now(), icon: def.icon });
+        }
+
+        // Streak badges
+        for (const threshold of [3, 7, 14]) {
+          const badgeId = `streak-${threshold}`;
+          if (gam.streak.current >= threshold && !gam.badges.some((b) => b.id === badgeId)) {
+            const def = BADGE_CATALOG[badgeId];
+            if (def) gam.badges.push({ id: badgeId, name: def.name, description: def.description, earnedAt: Date.now(), icon: def.icon });
+          }
+        }
+
+        // Check if week is now complete
+        const updatedWeek = updated.weeks.find((w) => w.weekNumber === weekNum);
+        if (updatedWeek?.completed && !gam.weekMilestones[weekNum]) {
+          gam.weekMilestones[weekNum] = true;
+          const weekBadgeId = `week-${weekNum}-complete`;
+          const def = BADGE_CATALOG[weekBadgeId];
+          if (def && !gam.badges.some((b) => b.id === weekBadgeId)) {
+            gam.badges.push({ id: weekBadgeId, name: def.name, description: def.description, earnedAt: Date.now(), icon: def.icon });
+          }
+
+          // Check phase completion
+          const { phase } = getPhaseForWeek(weekNum);
+          const phaseWeeks = updated.weeks.filter((w) => (w.phase || getPhaseForWeek(w.weekNumber).phase) === phase);
+          if (phaseWeeks.every((w) => w.completed) && !gam.phaseCompletions[phase]) {
+            gam.phaseCompletions[phase] = true;
+            const phaseBadgeId = `phase-${phase}-complete`;
+            const pdef = BADGE_CATALOG[phaseBadgeId];
+            if (pdef && !gam.badges.some((b) => b.id === phaseBadgeId)) {
+              gam.badges.push({ id: phaseBadgeId, name: pdef.name, description: pdef.description, earnedAt: Date.now(), icon: pdef.icon });
+            }
+          }
+        }
+
+        // Check plan complete
+        if (updated.weeks.every((w) => w.completed) && !gam.badges.some((b) => b.id === 'plan-complete')) {
+          const def = BADGE_CATALOG['plan-complete'];
+          if (def) gam.badges.push({ id: 'plan-complete', name: def.name, description: def.description, earnedAt: Date.now(), icon: def.icon });
+        }
+      } else {
+        // Uncompleting a module
+        gam.xp = Math.max(0, gam.xp - xpDelta);
+        gam.level = computeLevel(gam.xp);
+      }
+
+      updated.gamification = gam;
       setTrainingPlan(updated);
       localStorage.setItem('chessmind_plan', JSON.stringify(updated));
     },
@@ -327,6 +434,13 @@ export function ChessProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem('chessmind_training');
   }, []);
 
+  const dismissWelcome = useCallback(() => {
+    if (!trainingPlan) return;
+    const updated = { ...trainingPlan, welcomeDismissed: true };
+    setTrainingPlan(updated);
+    localStorage.setItem('chessmind_plan', JSON.stringify(updated));
+  }, [trainingPlan]);
+
   return (
     <ChessContext.Provider
       value={{
@@ -349,6 +463,7 @@ export function ChessProvider({ children }: { children: React.ReactNode }) {
         toggleModule,
         setCurrentWeek,
         clearTrainingPlan,
+        dismissWelcome,
       }}
     >
       {children}

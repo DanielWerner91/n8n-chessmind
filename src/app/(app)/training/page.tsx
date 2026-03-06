@@ -4,16 +4,18 @@ import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   GraduationCap, CheckSquare, Square, ExternalLink, Clock, Info,
-  ChevronRight, Target, Brain, Zap, BookOpen, Shield, Trophy,
+  ChevronRight, Target, Brain, Zap, BookOpen, Shield, Trophy, Award,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useChess } from '@/lib/ChessContext';
 import Colors from '@/lib/colors';
 import { NeonGradientCard } from '@/components/ui/neon-gradient-card';
 import { ShimmerButton } from '@/components/ui/shimmer-button';
-import { AnimatedShinyText } from '@/components/ui/animated-shiny-text';
 import { NumberTicker } from '@/components/ui/number-ticker';
-import type { WeekPlan, DayModule, PlayerArchetype } from '@/lib/types';
+import WelcomeOverlay from '@/components/WelcomeOverlay';
+import ProgressHeader from '@/components/ProgressHeader';
+import { defaultGamificationState, getPhaseForWeek, PHASE_DESCRIPTIONS, BADGE_CATALOG } from '@/lib/gamification';
+import type { WeekPlan, DayModule, PlayerArchetype, PhaseName } from '@/lib/types';
 
 const stagger = {
   hidden: {},
@@ -51,10 +53,16 @@ const archetypeIcons: Record<PlayerArchetype, typeof Brain> = {
   allRounder: Brain,
 };
 
-const severityColors = {
+const severityColors: Record<string, string> = {
   critical: Colors.loss,
   moderate: Colors.gold,
   minor: Colors.textSecondary,
+};
+
+const phaseIcons: Record<number, typeof Shield> = {
+  1: Shield,
+  2: Target,
+  3: Trophy,
 };
 
 export default function TrainingPage() {
@@ -124,14 +132,32 @@ export default function TrainingPage() {
     );
   }
 
-  const { diagnosis, diagnostic, weeks, currentWeek } = trainingPlan;
-  const totalModules = weeks.reduce((s, w) => s + w.days.length, 0);
-  const completedModules = weeks.reduce((s, w) => s + w.days.filter((d) => d.completed).length, 0);
-  const overallProgress = totalModules > 0 ? Math.round((completedModules / totalModules) * 100) : 0;
+  const { diagnosis, diagnostic, weeks, currentWeek, gamification } = trainingPlan;
+  const gam = gamification || defaultGamificationState();
   const ArchetypeIcon = archetypeIcons[diagnosis.archetype] || Brain;
+
+  // Group weeks by phase
+  const phases = useMemo(() => {
+    const grouped: { phase: number; phaseName: PhaseName; weeks: WeekPlan[] }[] = [];
+    for (const week of weeks) {
+      const { phase, phaseName } = week.phase && week.phaseName
+        ? { phase: week.phase, phaseName: week.phaseName }
+        : getPhaseForWeek(week.weekNumber);
+      const existing = grouped.find((g) => g.phase === phase);
+      if (existing) {
+        existing.weeks.push(week);
+      } else {
+        grouped.push({ phase, phaseName, weeks: [week] });
+      }
+    }
+    return grouped;
+  }, [weeks]);
 
   return (
     <div className="px-5 pt-4 pb-8">
+      {/* Welcome Overlay */}
+      <WelcomeOverlay />
+
       {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: -10 }}
@@ -152,6 +178,39 @@ export default function TrainingPage() {
       </motion.div>
       <p className="text-text-secondary text-sm mb-4">8-Week Improvement Program</p>
 
+      {/* Progress Header (XP, Level, Streak, Badges) */}
+      <ProgressHeader gamification={gam} />
+
+      {/* Badge Showcase */}
+      {gam.badges.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="mb-4"
+        >
+          <p className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: Colors.textTertiary }}>
+            Earned Badges
+          </p>
+          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+            {gam.badges.map((badge) => (
+              <motion.div
+                key={badge.id}
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                className="shrink-0 flex flex-col items-center gap-1 px-2 py-1.5 rounded-xl"
+                style={{ backgroundColor: Colors.surface, minWidth: 64 }}
+                title={badge.description}
+              >
+                <Award size={16} style={{ color: Colors.gold }} />
+                <span className="text-[8px] font-medium text-center leading-tight" style={{ color: Colors.textSecondary }}>
+                  {badge.name}
+                </span>
+              </motion.div>
+            ))}
+          </div>
+        </motion.div>
+      )}
+
       {/* Diagnostic Summary — Neon Card */}
       <motion.div variants={fadeUp}>
         <NeonGradientCard className="mb-4" borderSize={1} neonColors={{ firstColor: '#10B981', secondColor: '#059669' }}>
@@ -171,7 +230,6 @@ export default function TrainingPage() {
           </div>
           <p className="text-text-secondary text-xs leading-relaxed mb-3">{diagnosis.archetypeDescription}</p>
 
-          {/* Weaknesses */}
           {diagnosis.weaknesses.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {diagnosis.weaknesses.slice(0, 4).map((w, i) => (
@@ -195,43 +253,57 @@ export default function TrainingPage() {
         </NeonGradientCard>
       </motion.div>
 
-      {/* Overall Progress */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.2 }}
-        className="mb-4"
-      >
-        <div className="flex justify-between items-center mb-1.5">
-          <span className="text-text-secondary text-xs font-medium">Overall Progress</span>
-          <span className="text-text-secondary text-xs">
-            <NumberTicker value={completedModules} />/{totalModules} modules
-          </span>
-        </div>
-        <div className="h-2 bg-surface rounded-full overflow-hidden">
-          <motion.div
-            initial={{ width: 0 }}
-            animate={{ width: `${overallProgress}%` }}
-            transition={{ duration: 1, delay: 0.3, ease: 'easeOut' }}
-            className="h-full bg-gold rounded-full"
-          />
-        </div>
-      </motion.div>
+      {/* Phases with Week Cards */}
+      <motion.div initial="hidden" animate="visible" variants={stagger} className="space-y-5">
+        {phases.map((phaseGroup) => {
+          const PhaseIcon = phaseIcons[phaseGroup.phase] || Shield;
+          const phaseComplete = phaseGroup.weeks.every((w) => w.completed);
+          return (
+            <motion.div key={phaseGroup.phase} variants={fadeUp}>
+              {/* Phase Header */}
+              <div className="flex items-center gap-2.5 mb-2">
+                <div
+                  className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
+                  style={{
+                    backgroundColor: phaseComplete ? `${Colors.win}20` : `${Colors.gold}15`,
+                  }}
+                >
+                  <PhaseIcon size={14} style={{ color: phaseComplete ? Colors.win : Colors.gold }} />
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold uppercase tracking-wider" style={{ color: Colors.textSecondary }}>
+                      Phase {phaseGroup.phase}: {phaseGroup.phaseName}
+                    </span>
+                    {phaseComplete && (
+                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md" style={{ backgroundColor: `${Colors.win}20`, color: Colors.win }}>
+                        Complete
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[10px]" style={{ color: Colors.textTertiary }}>
+                    {PHASE_DESCRIPTIONS[phaseGroup.phase]}
+                  </p>
+                </div>
+              </div>
 
-      {/* Calendar Grid — 8 weeks */}
-      <motion.div initial="hidden" animate="visible" variants={stagger} className="space-y-2">
-        {weeks.map((week) => (
-          <motion.div key={week.weekNumber} variants={fadeUp}>
-            <WeekCard
-              week={week}
-              isCurrent={week.weekNumber === currentWeek}
-              onOpenWeek={() => router.push(`/training/week/${week.weekNumber}`)}
-              onToggleModule={(id) => toggleModule(week.weekNumber, id)}
-              expandedModule={expandedModule}
-              setExpandedModule={setExpandedModule}
-            />
-          </motion.div>
-        ))}
+              {/* Week Cards */}
+              <div className="space-y-2">
+                {phaseGroup.weeks.map((week) => (
+                  <WeekCard
+                    key={week.weekNumber}
+                    week={week}
+                    isCurrent={week.weekNumber === currentWeek}
+                    onOpenWeek={() => router.push(`/training/week/${week.weekNumber}`)}
+                    onToggleModule={(id) => toggleModule(week.weekNumber, id)}
+                    expandedModule={expandedModule}
+                    setExpandedModule={setExpandedModule}
+                  />
+                ))}
+              </div>
+            </motion.div>
+          );
+        })}
       </motion.div>
 
       {/* Regenerate */}
@@ -271,7 +343,6 @@ function WeekCard({
   const total = week.days.length;
   const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
 
-  // Group days by dayOfWeek
   const dayGroups = useMemo(() => {
     const groups = new Map<number, DayModule[]>();
     for (const d of week.days) {
@@ -292,7 +363,7 @@ function WeekCard({
         boxShadow: isCurrent ? '0 0 20px rgba(16,185,129,0.1)' : undefined,
       }}
     >
-      {/* Week header — click to expand */}
+      {/* Week header */}
       <button
         onClick={() => setIsExpanded(!isExpanded)}
         className="w-full flex items-center gap-3 p-3.5 text-left"
@@ -305,7 +376,7 @@ function WeekCard({
             color: week.completed || isCurrent ? Colors.background : Colors.textSecondary,
           }}
         >
-          {week.completed ? '✓' : week.weekNumber}
+          {week.completed ? '\u2713' : week.weekNumber}
         </motion.div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
@@ -323,12 +394,11 @@ function WeekCard({
           </div>
           <div className="flex items-center gap-2 mt-0.5">
             <span className="text-text-tertiary text-xs">{week.focus}</span>
-            <span className="text-text-tertiary text-xs">·</span>
+            <span className="text-text-tertiary text-xs">&middot;</span>
             <span className="text-text-tertiary text-xs">{completed}/{total} done</span>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {/* Mini progress ring */}
           <svg width={28} height={28} className="shrink-0">
             <circle cx={14} cy={14} r={11} fill="none" stroke={Colors.surface} strokeWidth={3} />
             <motion.circle
@@ -362,7 +432,30 @@ function WeekCard({
             className="overflow-hidden"
           >
             <div className="px-3.5 pb-3.5">
-              <p className="text-text-secondary text-xs mb-3">{week.description}</p>
+              <p className="text-text-secondary text-xs mb-2">{week.description}</p>
+
+              {/* Week Goal */}
+              {week.weekGoal && (
+                <div className="flex items-start gap-2 mb-3 p-2.5 rounded-xl" style={{ backgroundColor: `${Colors.gold}08` }}>
+                  <Target size={13} style={{ color: Colors.gold }} className="shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-[9px] font-bold uppercase tracking-wider mb-0.5" style={{ color: Colors.gold }}>
+                      Week Goal
+                    </p>
+                    <p className="text-[11px]" style={{ color: Colors.textSecondary }}>{week.weekGoal}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Milestone */}
+              {week.milestone && (
+                <div className="flex items-center gap-2 mb-3">
+                  <Award size={12} style={{ color: week.completed ? Colors.gold : Colors.textTertiary }} />
+                  <span className="text-[10px] font-medium" style={{ color: week.completed ? Colors.gold : Colors.textTertiary }}>
+                    {week.completed ? `Unlocked: ${week.milestone.name}` : `Unlock: ${week.milestone.name}`}
+                  </span>
+                </div>
+              )}
 
               {/* Day grid */}
               <div className="flex gap-1 mb-3">
@@ -387,7 +480,7 @@ function WeekCard({
                         {label}
                       </span>
                       <span className="text-[9px]" style={{ color: Colors.textTertiary }}>
-                        {hasModules ? modules.length : '—'}
+                        {hasModules ? modules.length : '\u2014'}
                       </span>
                     </motion.div>
                   );
@@ -424,7 +517,7 @@ function WeekCard({
                   className="w-full py-2 text-xs font-semibold rounded-xl transition-colors hover:opacity-80"
                   style={{ backgroundColor: Colors.surface, color: Colors.textSecondary }}
                 >
-                  View Week Details →
+                  View Week Details &rarr;
                 </motion.button>
               )}
             </div>
@@ -500,7 +593,6 @@ function ModuleRow({
         </div>
       </button>
 
-      {/* Footer */}
       <div className="px-3 pb-2 flex items-center gap-2">
         {mod.rationale && (
           <button onClick={onExpandToggle} className="flex items-center gap-1 text-text-tertiary hover:text-text-secondary transition-colors">

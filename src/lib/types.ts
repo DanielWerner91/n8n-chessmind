@@ -252,6 +252,14 @@ export interface DayModule {
   rationale?: string;
 }
 
+export type PhaseName = 'Foundation' | 'Development' | 'Mastery';
+
+export interface WeekMilestone {
+  name: string;
+  description: string;
+  icon: string;
+}
+
 export interface WeekPlan {
   weekNumber: number; // 1-8
   theme: string;
@@ -259,6 +267,11 @@ export interface WeekPlan {
   description: string;
   days: DayModule[];
   completed: boolean;
+  weekGoal?: string;
+  milestone?: WeekMilestone;
+  motivationalIntro?: string;
+  phase?: number; // 1, 2, or 3
+  phaseName?: PhaseName;
 }
 
 export interface ChessOSDocument {
@@ -277,6 +290,31 @@ export interface RatingLogEntry {
   note?: string;
 }
 
+export type ChessLevel = 'pawn' | 'knight' | 'bishop' | 'rook' | 'queen' | 'king';
+
+export interface Badge {
+  id: string;
+  name: string;
+  description: string;
+  earnedAt: number;
+  icon: string;
+}
+
+export interface StreakState {
+  current: number;
+  best: number;
+  lastActivityDate: string; // YYYY-MM-DD
+}
+
+export interface GamificationState {
+  xp: number;
+  level: ChessLevel;
+  streak: StreakState;
+  badges: Badge[];
+  weekMilestones: Record<number, boolean>;
+  phaseCompletions: Record<number, boolean>;
+}
+
 export interface TrainingPlan {
   id: string;
   generatedAt: number;
@@ -287,4 +325,6 @@ export interface TrainingPlan {
   ratingLog: RatingLogEntry[];
   currentWeek: number;
   regenerationCount: number;
+  gamification?: GamificationState;
+  welcomeDismissed?: boolean;
 }

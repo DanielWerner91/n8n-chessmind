@@ -8,7 +8,11 @@ import {
   RatingBracket,
   AdaptiveFlags,
   WeaknessItem,
+  PlayerArchetype,
+  PhaseName,
+  WeekMilestone,
 } from './types';
+import { defaultGamificationState, getPhaseForWeek } from './gamification';
 
 /**
  * Generate a complete 8-week training plan from player diagnostic and diagnosis.
@@ -30,6 +34,8 @@ export function generate8WeekPlan(
     ratingLog: [{ date: Date.now(), rating: diagnostic.currentRating, note: 'Plan start' }],
     currentWeek: 1,
     regenerationCount: 0,
+    gamification: defaultGamificationState(),
+    welcomeDismissed: false,
   };
 }
 
@@ -43,26 +49,81 @@ interface WeekTemplate {
   theme: string;
   focus: string;
   description: string;
+  weekGoal: string;
+  milestone: WeekMilestone;
+  phase: number;
+  phaseName: PhaseName;
 }
 
 function getWeekTemplates(bracket: RatingBracket, flags: AdaptiveFlags): WeekTemplate[] {
   const base: WeekTemplate[] = [
-    { theme: 'Foundation', focus: 'tactics', description: 'Build a solid tactical foundation with daily puzzle practice and baseline assessment.' },
-    { theme: 'Opening Mastery', focus: 'openings', description: 'Strengthen your opening repertoire and eliminate early-game blunders.' },
-    { theme: 'Tactical Sharpness', focus: 'tactics', description: 'Push tactical depth with harder puzzles, calculation drills, and pattern work.' },
-    { theme: 'Strategic Play', focus: 'strategy', description: 'Develop positional understanding, pawn structures, and planning skills.' },
-    { theme: 'Endgame Technique', focus: 'endgames', description: 'Master essential endgame patterns and conversion technique.' },
-    { theme: 'Integration Week', focus: 'play', description: 'Apply everything in rated games. Focus on quality play and post-game analysis.' },
-    { theme: 'Weakness Targeting', focus: 'weakness', description: 'Intensely work on your identified weak areas with focused drills.' },
-    { theme: 'Peak Performance', focus: 'review', description: 'Tournament preparation mindset. Time management, consistency, and review.' },
+    {
+      theme: 'Foundation', focus: 'tactics',
+      description: 'Build a solid tactical foundation with daily puzzle practice and baseline assessment.',
+      weekGoal: 'Complete all daily tactical puzzles and establish your training routine.',
+      milestone: { name: 'Foundation Builder', description: 'Complete all Week 1 modules', icon: 'Hammer' },
+      ...getPhaseForWeek(1),
+    },
+    {
+      theme: 'Opening Mastery', focus: 'openings',
+      description: 'Strengthen your opening repertoire and eliminate early-game blunders.',
+      weekGoal: 'Study your main openings and learn the key ideas behind each one.',
+      milestone: { name: 'Opening Scholar', description: 'Complete all Week 2 modules', icon: 'BookOpen' },
+      ...getPhaseForWeek(2),
+    },
+    {
+      theme: 'Tactical Sharpness', focus: 'tactics',
+      description: 'Push tactical depth with harder puzzles, calculation drills, and pattern work.',
+      weekGoal: 'Push your puzzle rating higher by solving increasingly difficult tactics.',
+      milestone: { name: 'Tactical Eye', description: 'Complete all Week 3 modules', icon: 'Eye' },
+      ...getPhaseForWeek(3),
+    },
+    {
+      theme: 'Strategic Play', focus: 'strategy',
+      description: 'Develop positional understanding, pawn structures, and planning skills.',
+      weekGoal: 'Learn to evaluate positions and form long-term plans.',
+      milestone: { name: 'Strategist', description: 'Complete all Week 4 modules', icon: 'Map' },
+      ...getPhaseForWeek(4),
+    },
+    {
+      theme: 'Endgame Technique', focus: 'endgames',
+      description: 'Master essential endgame patterns and conversion technique.',
+      weekGoal: 'Master the fundamental endgame positions for your rating bracket.',
+      milestone: { name: 'Endgame Artist', description: 'Complete all Week 5 modules', icon: 'Crown' },
+      ...getPhaseForWeek(5),
+    },
+    {
+      theme: 'Integration Week', focus: 'play',
+      description: 'Apply everything in rated games. Focus on quality play and post-game analysis.',
+      weekGoal: 'Play rated games and apply everything you have learned so far.',
+      milestone: { name: 'Battle Tested', description: 'Complete all Week 6 modules', icon: 'Swords' },
+      ...getPhaseForWeek(6),
+    },
+    {
+      theme: 'Weakness Targeting', focus: 'weakness',
+      description: 'Intensely work on your identified weak areas with focused drills.',
+      weekGoal: 'Face your weaknesses head-on and turn them into strengths.',
+      milestone: { name: 'Weakness Crusher', description: 'Complete all Week 7 modules', icon: 'Target' },
+      ...getPhaseForWeek(7),
+    },
+    {
+      theme: 'Peak Performance', focus: 'review',
+      description: 'Tournament preparation mindset. Time management, consistency, and review.',
+      weekGoal: 'Consolidate all skills and perform at your best in rated games.',
+      milestone: { name: 'Peak Performer', description: 'Complete all Week 8 modules', icon: 'Trophy' },
+      ...getPhaseForWeek(8),
+    },
   ];
 
   // Adaptive modifications
   if (flags.doubleUpTactics) {
-    base[3] = { theme: 'Tactics Deep Dive', focus: 'tactics', description: 'Extended tactical training to build stronger pattern recognition.' };
+    base[3] = {
+      ...base[3], theme: 'Tactics Deep Dive', focus: 'tactics',
+      description: 'Extended tactical training to build stronger pattern recognition.',
+      weekGoal: 'Solve 150+ puzzles this week to cement tactical patterns.',
+    };
   }
   if (flags.prioritizeEndgames) {
-    // Move endgames earlier (swap positions 2 and 4)
     const endgameWeek = base[4];
     base[4] = base[2];
     base[2] = endgameWeek;
@@ -90,10 +151,41 @@ function buildWeeks(diagnostic: PlayerDiagnostic, diagnosis: Diagnostic): WeekPl
       description: template.description,
       days,
       completed: false,
+      weekGoal: template.weekGoal,
+      milestone: template.milestone,
+      motivationalIntro: getMotivationalIntro(w + 1, diagnosis.archetype, diagnostic.ratingBracket),
+      phase: template.phase,
+      phaseName: template.phaseName,
     });
   }
 
   return weeks;
+}
+
+function getMotivationalIntro(weekNum: number, archetype: PlayerArchetype, bracket: RatingBracket): string {
+  const archetypeFlavor: Record<PlayerArchetype, string> = {
+    tactician: 'Your sharp tactical eye is your greatest weapon.',
+    positionalGrinder: 'Your patience and positional sense set you apart.',
+    aggressiveAttacker: 'Your attacking instincts give you a natural edge.',
+    endgameSpecialist: 'Your endgame technique is a rare and powerful skill.',
+    chaoticBlitzer: 'Your speed and intuition are forces to be reckoned with.',
+    allRounder: 'Your balanced approach gives you flexibility in any position.',
+  };
+
+  const flavor = archetypeFlavor[archetype] || '';
+
+  const intros: Record<number, string> = {
+    1: `Welcome to Week 1 — this is where your transformation begins. ${flavor} This week we lay the groundwork that everything else builds on. Trust the process and show up every day.`,
+    2: `Week 2 is here, and you are already proving your commitment. ${flavor} Now it is time to strengthen how you start your games. A strong opening leads to confident play.`,
+    3: `You have built a solid base — now let us sharpen your blade. ${flavor} This week we push deeper into tactical patterns. The puzzles get harder, and so do you.`,
+    4: `Halfway through your journey, and the real growth begins. ${flavor} Strategy is about seeing the bigger picture. This week you will learn to think like a chess player, not just calculate like one.`,
+    5: `The endgame is where games are won and lost. ${flavor} This week we master the positions that decide results. Every half-point counts.`,
+    6: `Time to put it all together. ${flavor} This week is about playing real games with everything you have learned. Quality over quantity — every move matters.`,
+    7: `This is the week that separates good from great. ${flavor} We are targeting your specific weaknesses with surgical precision. Embrace the discomfort — that is where growth happens.`,
+    8: `The final week. ${flavor} You have come so far. This week is about consistency, confidence, and peak performance. Play your best chess and trust your preparation.`,
+  };
+
+  return intros[weekNum] || '';
 }
 
 function buildDaysForWeek(

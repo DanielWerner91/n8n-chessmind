@@ -3,11 +3,12 @@
 import { useState, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
-  ArrowLeft, CheckSquare, Square, ExternalLink, Clock, Info, Target,
+  ArrowLeft, CheckSquare, Square, ExternalLink, Clock, Info, Target, Award, Sparkles,
 } from 'lucide-react';
 import { useChess } from '@/lib/ChessContext';
 import Colors from '@/lib/colors';
 import type { DayModule } from '@/lib/types';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const DAY_LABELS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const DAY_SHORT = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -98,10 +99,80 @@ export default function WeekDetailPage() {
         )}
       </div>
 
+      {/* Motivational Intro */}
+      {week.motivationalIntro && (
+        <motion.div
+          initial={{ opacity: 0, x: -10 }}
+          animate={{ opacity: 1, x: 0 }}
+          className="mb-4 p-3.5 rounded-xl border-l-2"
+          style={{ backgroundColor: `${Colors.gold}08`, borderLeftColor: Colors.gold }}
+        >
+          <p className="text-xs italic leading-relaxed" style={{ color: Colors.textSecondary }}>
+            {week.motivationalIntro}
+          </p>
+        </motion.div>
+      )}
+
+      {/* Week Goal */}
+      {week.weekGoal && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="flex items-start gap-2.5 mb-3 p-3 rounded-xl"
+          style={{ backgroundColor: Colors.card }}
+        >
+          <Target size={16} style={{ color: Colors.gold }} className="shrink-0 mt-0.5" />
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-wider mb-0.5" style={{ color: Colors.gold }}>
+              Week Goal
+            </p>
+            <p className="text-xs" style={{ color: Colors.textSecondary }}>{week.weekGoal}</p>
+          </div>
+        </motion.div>
+      )}
+
+      {/* Milestone Tracker */}
+      {week.milestone && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15 }}
+          className="flex items-center gap-2.5 mb-4 p-3 rounded-xl"
+          style={{ backgroundColor: week.completed ? `${Colors.gold}15` : Colors.card }}
+        >
+          <Award size={16} style={{ color: week.completed ? Colors.gold : Colors.textTertiary }} />
+          <div className="flex-1">
+            <p className="text-xs font-semibold" style={{ color: week.completed ? Colors.gold : Colors.textSecondary }}>
+              {week.completed ? `Unlocked: ${week.milestone.name}` : week.milestone.name}
+            </p>
+            <p className="text-[10px]" style={{ color: Colors.textTertiary }}>
+              {week.completed
+                ? week.milestone.description
+                : `Complete ${total - completed} more module${total - completed !== 1 ? 's' : ''} to earn this badge`}
+            </p>
+          </div>
+          {week.completed && (
+            <motion.div
+              initial={{ scale: 0, rotate: -20 }}
+              animate={{ scale: 1, rotate: 0 }}
+              transition={{ type: 'spring', stiffness: 200 }}
+            >
+              <Sparkles size={16} style={{ color: Colors.gold }} />
+            </motion.div>
+          )}
+        </motion.div>
+      )}
+
       {/* Progress */}
       <div className="mb-4">
         <div className="h-2 bg-surface rounded-full overflow-hidden mb-1.5">
-          <div className="h-full bg-gold rounded-full transition-all" style={{ width: `${pct}%` }} />
+          <motion.div
+            initial={{ width: 0 }}
+            animate={{ width: `${pct}%` }}
+            transition={{ duration: 0.8, ease: 'easeOut' }}
+            className="h-full bg-gold rounded-full"
+          />
         </div>
         <p className="text-text-secondary text-xs text-right">{completed}/{total} modules completed</p>
       </div>
