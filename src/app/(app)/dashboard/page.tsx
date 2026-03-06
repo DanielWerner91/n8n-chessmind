@@ -10,7 +10,7 @@ import Colors from '@/lib/colors';
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { username, runAnalysisMutation } = useChess();
+  const { username, runAnalysisMutation, analysisReport } = useChess();
   const profileQuery = useProfile();
   const statsQuery = useStats();
   const gamesQuery = useGames();
@@ -177,16 +177,30 @@ export default function DashboardPage() {
       {/* Quick Insights */}
       <div className="rounded-2xl p-4 border mb-6" style={{ backgroundColor: Colors.card, borderColor: Colors.border }}>
         <h3 className="text-text-secondary text-xs font-medium uppercase tracking-wide mb-3">Quick Insights</h3>
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-win" />
-            <span className="text-white text-sm"><strong>Strength:</strong> Tactical combinations</span>
+        {analysisReport ? (
+          <div className="space-y-2">
+            {analysisReport.strengths.slice(0, 2).map((s) => (
+              <div key={s.title} className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-win" />
+                <span className="text-white text-sm"><strong>Strength:</strong> {s.title}</span>
+              </div>
+            ))}
+            {analysisReport.weaknesses.slice(0, 2).map((w) => (
+              <div key={w.title} className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-loss" />
+                <span className="text-white text-sm"><strong>Work on:</strong> {w.title}</span>
+              </div>
+            ))}
+            {analysisReport.ratingTip && (
+              <div className="flex items-center gap-2 mt-1">
+                <div className="w-2 h-2 rounded-full bg-gold" />
+                <span className="text-text-secondary text-xs">{analysisReport.ratingTip}</span>
+              </div>
+            )}
           </div>
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-loss" />
-            <span className="text-white text-sm"><strong>Work on:</strong> Rook endgames</span>
-          </div>
-        </div>
+        ) : (
+          <p className="text-text-tertiary text-sm">Run an analysis to see personalized insights.</p>
+        )}
       </div>
 
       {/* Run Analysis CTA */}

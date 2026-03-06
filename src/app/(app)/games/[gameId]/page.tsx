@@ -3,6 +3,7 @@
 import { useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { X, Clock, Zap, Timer, BookOpen } from 'lucide-react';
+import { Chess } from 'chess.js';
 import { useChess, useGames } from '@/lib/ChessContext';
 import ChessBoard from '@/components/ChessBoard';
 import Colors from '@/lib/colors';
@@ -47,6 +48,19 @@ export default function GameDetailPage() {
   const dateStr = date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 
   const TimeIcon = game.timeClass === 'bullet' ? Zap : game.timeClass === 'blitz' ? Timer : Clock;
+
+  const finalFen = useMemo(() => {
+    try {
+      const chess = new Chess();
+      for (const move of game.moves) {
+        const result = chess.move(move);
+        if (!result) break;
+      }
+      return chess.fen();
+    } catch {
+      return undefined;
+    }
+  }, [game.moves]);
 
   const movePairs = useMemo(() => {
     const pairs: { num: number; white: string; black?: string }[] = [];
@@ -120,7 +134,7 @@ export default function GameDetailPage() {
 
       {/* Chess Board */}
       <div className="mb-4">
-        <ChessBoard size={Math.min(360, 320)} />
+        <ChessBoard fen={finalFen} flipped={game.userColor === 'black'} size={Math.min(360, 320)} />
       </div>
 
       {/* Opening */}

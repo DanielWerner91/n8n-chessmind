@@ -10,11 +10,19 @@ import {
   AnalysisReport,
   TrainingTask,
 } from './types';
-import { generateMockAnalysis, generateMockTrainingPlan } from './mockData';
+import { computeStatsAnalysis } from './analysisEngine';
 
 interface StoredUser {
   username: string;
   platform: Platform;
+}
+
+interface EngineProgress {
+  currentGame: number;
+  totalGames: number;
+  currentMove: number;
+  totalMoves: number;
+  gameName: string;
 }
 
 interface ChessContextValue {
@@ -26,6 +34,9 @@ interface ChessContextValue {
   disconnect: () => Promise<void>;
   analysisReport: AnalysisReport | null;
   runAnalysisMutation: ReturnType<typeof useMutation<AnalysisReport, Error, void>>;
+  runEngineAnalysis: () => void;
+  engineProgress: EngineProgress | null;
+  isEngineRunning: boolean;
   trainingTasks: TrainingTask[];
   initTrainingMutation: ReturnType<typeof useMutation<TrainingTask[], Error, void>>;
   toggleTask: (taskId: string) => void;
@@ -39,6 +50,8 @@ export function ChessProvider({ children }: { children: React.ReactNode }) {
   const [isReady, setIsReady] = useState(false);
   const [trainingTasks, setTrainingTasks] = useState<TrainingTask[]>([]);
   const [analysisReport, setAnalysisReport] = useState<AnalysisReport | null>(null);
+  const [engineProgress, setEngineProgress] = useState<EngineProgress | null>(null);
+  const [isEngineRunning, setIsEngineRunning] = useState(false);
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -89,8 +102,28 @@ export function ChessProvider({ children }: { children: React.ReactNode }) {
 
   const runAnalysisMutation = useMutation({
     mutationFn: async () => {
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-      return generateMockAnalysis();
+      // Fetch games to analyze
+      const res = await fetch(`/api/chess/games?username=${encodeURIComponent(username!)}&platform=${encodeURIComponent(platform)}`);
+      if (!res.ok) throw new Error('Failed to fetch games for analysis');
+      const games: ChessGame[] = await res.json();
+      if (games.length === 0) throw new Error('No games found to analyze');
+
+      // Fetch stats for best rating
+      let bestRating: number | undefined;
+      try {
+        const statsRes = await fetch(`/api/chess/stats?username=${encodeURIComponent(username!)}&platform=${encodeURIComponent(platform)}`);
+        if (statsRes.ok) {
+          const stats = await statsRes.json();
+          const ratings = [
+            stats.chess_rapid?.best?.rating || stats.chess_rapid?.last?.rating || 0,
+            stats.chess_blitz?.best?.rating || stats.chess_blitz?.last?.rating || 0,
+            stats.chess_bullet?.best?.rating || stats.chess_bullet?.last?.rating || 0,
+          ];
+          bestRating = Math.max(...ratings);
+        }
+      } catch { /* use estimated rating */ }
+
+      return computeStatsAnalysis(games, username!, bestRating);
     },
     onSuccess: (report) => {
       setAnalysisReport(report);
@@ -100,14 +133,68 @@ export function ChessProvider({ children }: { children: React.ReactNode }) {
 
   const initTrainingMutation = useMutation({
     mutationFn: async () => {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      return generateMockTrainingPlan();
+      // Require analysis first — if none exists, run it
+      let report = analysisReport;
+      if (!report) {
+        const res = await fetch(`/api/chess/games?username=${encodeURIComponent(username!)}&platform=${encodeURIComponent(platform)}`);
+        if (!res.ok) throw new Error('Failed to fetch games');
+        const games: ChessGame[] = await res.json();
+        report = computeStatsAnalysis(games, username!);
+        setAnalysisReport(report);
+        localStorage.setItem('chessmind_analysis', JSON.stringify(report));
+      }
+      // Training planner will be implemented in Phase 4 — for now generate placeholder tasks from analysis
+      const { generateTrainingPlan } = await import('./trainingPlanner');
+      return generateTrainingPlan(report);
     },
     onSuccess: (tasks) => {
       setTrainingTasks(tasks);
       localStorage.setItem('chessmind_training', JSON.stringify(tasks));
     },
   });
+
+  const runEngineAnalysis = useCallback(async () => {
+    if (isEngineRunning || !username || !analysisReport) return;
+    setIsEngineRunning(true);
+    setEngineProgress(null);
+
+    try {
+      const res = await fetch(`/api/chess/games?username=${encodeURIComponent(username)}&platform=${encodeURIComponent(platform)}`);
+      if (!res.ok) throw new Error('Failed to fetch games');
+      const games: ChessGame[] = await res.json();
+
+      const { selectGamesForAnalysis, analyzeGames } = await import('./gameAnalyzer');
+      const selected = selectGamesForAnalysis(games);
+
+      if (selected.length === 0) {
+        setIsEngineRunning(false);
+        return;
+      }
+
+      const result = await analyzeGames(selected, username, (progress) => {
+        setEngineProgress(progress);
+      });
+
+      // Merge engine results into the existing analysis report
+      const enhanced: AnalysisReport = {
+        ...analysisReport,
+        engineEnhanced: true,
+        blunders: result.blunders,
+        mistakes: result.mistakes,
+        inaccuracies: result.inaccuracies,
+        criticalMoments: result.criticalMoments,
+        missedTactics: result.missedTactics,
+      };
+
+      setAnalysisReport(enhanced);
+      localStorage.setItem('chessmind_analysis', JSON.stringify(enhanced));
+    } catch (err) {
+      console.error('Engine analysis failed:', err);
+    } finally {
+      setIsEngineRunning(false);
+      setEngineProgress(null);
+    }
+  }, [isEngineRunning, username, platform, analysisReport]);
 
   const toggleTask = useCallback(
     (taskId: string) => {
@@ -131,6 +218,9 @@ export function ChessProvider({ children }: { children: React.ReactNode }) {
         disconnect,
         analysisReport,
         runAnalysisMutation,
+        runEngineAnalysis,
+        engineProgress,
+        isEngineRunning,
         trainingTasks,
         initTrainingMutation,
         toggleTask,
