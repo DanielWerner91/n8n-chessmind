@@ -4,10 +4,11 @@ import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   GraduationCap, CheckSquare, Square, ExternalLink, Clock, Info,
-  ChevronRight, Target, Brain, Zap, BookOpen, Shield, Trophy, Award,
+  ChevronRight, Target, Brain, Zap, BookOpen, Shield, Trophy, Award, Lock,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useChess } from '@/lib/ChessContext';
+import { useSubscription } from '@/hooks/use-subscription';
 import Colors from '@/lib/colors';
 import { NeonGradientCard } from '@/components/ui/neon-gradient-card';
 import { ShimmerButton } from '@/components/ui/shimmer-button';
@@ -67,8 +68,15 @@ const phaseIcons: Record<number, typeof Shield> = {
 
 export default function TrainingPage() {
   const { trainingPlan, generatePlanMutation, toggleModule, analysisReport } = useChess();
+  const { isProUser, isLoading: subLoading } = useSubscription();
   const router = useRouter();
   const [expandedModule, setExpandedModule] = useState<string | null>(null);
+
+  const handleUpgrade = async () => {
+    const res = await fetch('/api/checkout', { method: 'POST' });
+    const { url } = await res.json();
+    if (url) window.location.href = url;
+  };
 
   // No plan — show generation CTA
   if (!trainingPlan) {
@@ -107,26 +115,51 @@ export default function TrainingPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.4 }}
         >
-          <ShimmerButton
-            onClick={() => generatePlanMutation.mutate()}
-            disabled={generatePlanMutation.isPending}
-            shimmerColor="#10B981"
-            background="rgba(30, 42, 58, 0.95)"
-            shimmerDuration="2.5s"
-            className="py-3.5 px-7 text-base font-bold disabled:opacity-60"
-          >
-            {generatePlanMutation.isPending ? (
-              <span className="flex items-center gap-2 text-gold">
-                <span className="w-5 h-5 border-2 border-gold border-t-transparent rounded-full animate-spin" />
-                Analyzing & Building Plan...
-              </span>
-            ) : (
-              <span className="flex items-center gap-2 text-gold">
-                <GraduationCap size={18} />
-                Generate 8-Week Plan
-              </span>
-            )}
-          </ShimmerButton>
+          {!subLoading && !isProUser ? (
+            <div className="space-y-3">
+              <div className="rounded-2xl border border-dashed p-5" style={{ borderColor: Colors.gold, backgroundColor: `${Colors.gold}08` }}>
+                <Shield size={24} className="text-gold mx-auto mb-2" />
+                <p className="text-white text-sm font-bold mb-1">Pro Feature</p>
+                <p className="text-text-secondary text-xs mb-4">
+                  Training plans are available with a Pro subscription.
+                  Get personalized weekly modules tailored to your weaknesses.
+                </p>
+                <ShimmerButton
+                  onClick={handleUpgrade}
+                  shimmerColor="#10B981"
+                  background="rgba(30, 42, 58, 0.95)"
+                  shimmerDuration="2.5s"
+                  className="py-3 px-6 text-sm font-bold"
+                >
+                  <span className="flex items-center gap-2 text-gold">
+                    <Shield size={16} />
+                    Upgrade to Pro
+                  </span>
+                </ShimmerButton>
+              </div>
+            </div>
+          ) : (
+            <ShimmerButton
+              onClick={() => generatePlanMutation.mutate()}
+              disabled={generatePlanMutation.isPending || subLoading}
+              shimmerColor="#10B981"
+              background="rgba(30, 42, 58, 0.95)"
+              shimmerDuration="2.5s"
+              className="py-3.5 px-7 text-base font-bold disabled:opacity-60"
+            >
+              {generatePlanMutation.isPending ? (
+                <span className="flex items-center gap-2 text-gold">
+                  <span className="w-5 h-5 border-2 border-gold border-t-transparent rounded-full animate-spin" />
+                  Analyzing & Building Plan...
+                </span>
+              ) : (
+                <span className="flex items-center gap-2 text-gold">
+                  <GraduationCap size={18} />
+                  Generate 8-Week Plan
+                </span>
+              )}
+            </ShimmerButton>
+          )}
         </motion.div>
       </div>
     );

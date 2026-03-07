@@ -4,9 +4,10 @@ import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   User, Link2, RefreshCw, Bell, ChevronRight,
-  LogOut, Trash2, Crown, Shield,
+  LogOut, Trash2, Crown, Shield, ExternalLink,
 } from 'lucide-react';
 import { useChess } from '@/lib/ChessContext';
+import { useSubscription } from '@/hooks/use-subscription';
 import Colors from '@/lib/colors';
 
 function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
@@ -29,6 +30,7 @@ function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
 export default function SettingsPage() {
   const router = useRouter();
   const { username, platform, disconnect, analysisReport, trainingTasks, trainingPlan, clearTrainingPlan } = useChess();
+  const { isProUser, isLoading: subLoading } = useSubscription();
   const [autoSync, setAutoSync] = useState(false);
   const [notifications, setNotifications] = useState(true);
 
@@ -37,6 +39,30 @@ export default function SettingsPage() {
       disconnect().then(() => router.replace('/onboarding'));
     }
   }, [disconnect, router]);
+
+  const handleSignOut = useCallback(async () => {
+    if (window.confirm('Sign out of your account?')) {
+      await disconnect();
+      // POST to signout route which clears Supabase session and redirects
+      const form = document.createElement('form');
+      form.method = 'POST';
+      form.action = '/auth/signout';
+      document.body.appendChild(form);
+      form.submit();
+    }
+  }, [disconnect]);
+
+  const handleUpgrade = useCallback(async () => {
+    const res = await fetch('/api/checkout', { method: 'POST' });
+    const { url } = await res.json();
+    if (url) window.location.href = url;
+  }, []);
+
+  const handleManageBilling = useCallback(async () => {
+    const res = await fetch('/api/billing', { method: 'POST' });
+    const { url } = await res.json();
+    if (url) window.location.href = url;
+  }, []);
 
   const handleClearData = useCallback(() => {
     if (window.confirm('This will clear your analysis report and training plan. Your game data will remain.')) {
@@ -61,8 +87,13 @@ export default function SettingsPage() {
           <p className="text-white text-base font-bold">{username || 'Not connected'}</p>
           <p className="text-text-secondary text-sm mt-0.5">{platform}</p>
         </div>
-        <div className="px-3 py-1 rounded-lg border" style={{ backgroundColor: Colors.surface, borderColor: Colors.border }}>
-          <span className="text-text-secondary text-xs font-bold">FREE</span>
+        <div className="px-3 py-1 rounded-lg border" style={{
+          backgroundColor: isProUser ? `${Colors.gold}15` : Colors.surface,
+          borderColor: isProUser ? Colors.gold : Colors.border,
+        }}>
+          <span className="text-xs font-bold" style={{ color: isProUser ? Colors.gold : Colors.textSecondary }}>
+            {subLoading ? '...' : isProUser ? 'PRO' : 'FREE'}
+          </span>
         </div>
       </div>
 
@@ -111,19 +142,37 @@ export default function SettingsPage() {
 
       {/* Subscription */}
       <p className="text-text-tertiary text-xs font-semibold uppercase tracking-wide mb-2">Subscription</p>
-      <button
-        className="w-full rounded-2xl p-4 border flex items-center justify-between gap-3 mb-5 text-left hover:opacity-90 transition-opacity"
-        style={{ backgroundColor: Colors.card, borderColor: Colors.gold }}
-      >
-        <div className="flex items-center gap-3">
-          <Shield size={24} className="text-gold" />
-          <div>
-            <p className="text-gold text-sm font-bold">Upgrade to Pro</p>
-            <p className="text-text-secondary text-xs mt-0.5">Full analysis, custom training, unlimited games</p>
+      {isProUser ? (
+        <button
+          onClick={handleManageBilling}
+          className="w-full rounded-2xl p-4 border flex items-center justify-between gap-3 mb-5 text-left hover:opacity-90 transition-opacity"
+          style={{ backgroundColor: Colors.card, borderColor: Colors.gold }}
+        >
+          <div className="flex items-center gap-3">
+            <Shield size={24} className="text-gold" />
+            <div>
+              <p className="text-gold text-sm font-bold">Pro Active</p>
+              <p className="text-text-secondary text-xs mt-0.5">Manage billing & subscription</p>
+            </div>
           </div>
-        </div>
-        <ChevronRight size={18} className="text-gold" />
-      </button>
+          <ExternalLink size={18} className="text-gold" />
+        </button>
+      ) : (
+        <button
+          onClick={handleUpgrade}
+          className="w-full rounded-2xl p-4 border flex items-center justify-between gap-3 mb-5 text-left hover:opacity-90 transition-opacity"
+          style={{ backgroundColor: Colors.card, borderColor: Colors.gold }}
+        >
+          <div className="flex items-center gap-3">
+            <Shield size={24} className="text-gold" />
+            <div>
+              <p className="text-gold text-sm font-bold">Upgrade to Pro</p>
+              <p className="text-text-secondary text-xs mt-0.5">Unlock 8-week training plans & more</p>
+            </div>
+          </div>
+          <ChevronRight size={18} className="text-gold" />
+        </button>
+      )}
 
       {/* Data */}
       <p className="text-text-tertiary text-xs font-semibold uppercase tracking-wide mb-2">Data</p>
@@ -162,14 +211,24 @@ export default function SettingsPage() {
         </button>
       </div>
 
-      {/* Disconnect */}
+      {/* Disconnect chess account */}
       <button
         onClick={handleDisconnect}
+        className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl border transition-opacity hover:opacity-80 mb-3"
+        style={{ borderColor: Colors.border }}
+      >
+        <Link2 size={18} className="text-text-secondary" />
+        <span className="text-text-secondary text-sm font-semibold">Disconnect Chess Account</span>
+      </button>
+
+      {/* Sign out */}
+      <button
+        onClick={handleSignOut}
         className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl border transition-opacity hover:opacity-80"
         style={{ borderColor: Colors.loss }}
       >
         <LogOut size={18} className="text-loss" />
-        <span className="text-loss text-sm font-semibold">Disconnect & Sign Out</span>
+        <span className="text-loss text-sm font-semibold">Sign Out</span>
       </button>
 
       <p className="text-text-tertiary text-xs text-center mt-6">ChessMind v1.0.0</p>

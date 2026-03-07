@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-ChessMind is a client-side AI chess coach web app that connects to Chess.com or Lichess accounts, analyzes recent games using statistical algorithms and browser-based Stockfish, then generates personalized 8-week training plans with daily modules tailored to the player's weaknesses, archetype, and rating bracket.
+ChessMind is an AI chess coach web app that connects to Chess.com or Lichess accounts, analyzes recent games using statistical algorithms and browser-based Stockfish, then generates personalized 8-week training plans with daily modules tailored to the player's weaknesses, archetype, and rating bracket.
 
 ## Tech Stack
 
@@ -15,88 +15,113 @@ ChessMind is a client-side AI chess coach web app that connects to Chess.com or 
 - **Icons:** lucide-react 0.577.0
 - **Chess Logic:** chess.js 1.4.0
 - **Engine:** stockfish 18.0.5 (WASM, runs in Web Worker)
+- **Auth:** Supabase Auth (Google + Apple OAuth)
+- **Database:** Supabase (profiles + webhook_events tables)
+- **Payments:** Lemon Squeezy (subscriptions)
+- **Legal:** Termly (privacy policy + terms of service)
 - **Utilities:** clsx 2.1.1, tailwind-merge 3.5.0
 
-No database. No auth. No backend beyond Next.js API routes. All user data lives in `localStorage`.
+## Auth & Subscription Architecture
+
+- **Authentication:** Supabase Auth with Google OAuth (+ Apple Sign-In). Middleware protects all routes except `/login`, `/auth`, `/privacy`, `/terms`, `/api/webhooks`.
+- **Profiles:** Auto-created on signup via DB trigger. Stores `subscription_status` ('free' | 'pro').
+- **Payments:** Lemon Squeezy checkout + webhook handler. Webhook verifies HMAC signature, checks idempotency, updates profile subscription status.
+- **Gating:** Training plans (8-week) require Pro subscription. Analysis/dashboard/games are free.
+- **Client state:** Chess data (games, analysis, training plans) still lives in `localStorage`. Auth/subscription state comes from Supabase.
 
 ## Folder Structure
 
 ```
 chessmind/
+├── middleware.ts             # Supabase auth session refresh + route protection
 ├── public/
-│   ├── stockfish-worker.js    # Web Worker wrapper for Stockfish WASM
-│   ├── stockfish.js           # Stockfish JS engine
-│   └── stockfish.wasm         # Stockfish WASM binary
+│   ├── stockfish-worker.js  # Web Worker wrapper for Stockfish WASM
+│   ├── stockfish.js         # Stockfish JS engine
+│   └── stockfish.wasm       # Stockfish WASM binary
 ├── src/
 │   ├── app/
-│   │   ├── layout.tsx         # Root layout (Inter font, QueryProvider, ChessProvider)
-│   │   ├── page.tsx           # Root redirect (→ /dashboard or /onboarding)
-│   │   ├── globals.css        # Tailwind theme tokens + keyframe animations
-│   │   ├── onboarding/
-│   │   │   └── page.tsx       # Platform selector + username input
-│   │   ├── (app)/             # Route group with sidebar/tab bar layout
-│   │   │   ├── layout.tsx     # App shell: sidebar (desktop) + bottom tabs (mobile)
-│   │   │   ├── dashboard/page.tsx     # Stats overview, donut chart, top openings, quick insights
-│   │   │   ├── games/page.tsx         # Filterable game list (last 30 days)
-│   │   │   ├── games/[gameId]/page.tsx # Game detail: board, moves, accuracy, AI commentary
-│   │   │   ├── analysis/page.tsx      # AI analysis report: 6-axis scores, strengths/weaknesses, engine analysis
-│   │   │   ├── training/page.tsx      # 8-week plan overview with week cards and module checkboxes
-│   │   │   ├── training/week/[n]/page.tsx # Week detail: day selector, module list per day
-│   │   │   ├── training/chess-os/page.tsx # Chess OS reference doc: repertoire, endgames, ritual, tilt protocol
-│   │   │   └── settings/page.tsx      # Profile, toggles, clear data, disconnect
-│   │   └── api/chess/
-│   │       ├── profile/route.ts       # GET: fetch player profile from Chess.com/Lichess
-│   │       ├── stats/route.ts         # GET: fetch player stats (ratings)
-│   │       └── games/route.ts         # GET: fetch recent games (last 30 days)
+│   │   ├── layout.tsx       # Root layout (Inter font, QueryProvider, ChessProvider)
+│   │   ├── page.tsx         # Root redirect (→ /dashboard or /onboarding)
+│   │   ├── globals.css      # Tailwind theme tokens + keyframe animations
+│   │   ├── login/page.tsx   # OAuth login page (Google + Apple)
+│   │   ├── onboarding/      # Platform selector + username input
+│   │   ├── privacy/page.tsx # Termly privacy policy embed
+│   │   ├── terms/page.tsx   # Termly terms of service embed
+│   │   ├── auth/
+│   │   │   ├── callback/route.ts  # OAuth callback (exchange code for session)
+│   │   │   └── signout/route.ts   # Sign out (clear session + redirect)
+│   │   ├── (app)/           # Route group with sidebar/tab bar layout
+│   │   │   ├── layout.tsx   # App shell: sidebar (desktop) + bottom tabs (mobile)
+│   │   │   ├── dashboard/   # Stats overview, donut chart, top openings
+│   │   │   ├── games/       # Game list + game detail views
+│   │   │   ├── analysis/    # AI analysis report
+│   │   │   ├── training/    # 8-week plan (Pro-gated) + week details + Chess OS
+│   │   │   └── settings/    # Profile, subscription, sign out
+│   │   └── api/
+│   │       ├── chess/       # Proxy routes for Chess.com/Lichess APIs
+│   │       ├── checkout/route.ts   # POST: Create Lemon Squeezy checkout
+│   │       ├── billing/route.ts    # POST: Get Lemon Squeezy customer portal
+│   │       └── webhooks/
+│   │           └── lemonsqueezy/route.ts  # POST: Webhook handler (HMAC verified)
 │   ├── components/
-│   │   ├── ChessBoard.tsx     # SVG chess board renderer (from FEN)
-│   │   ├── DonutChart.tsx     # SVG donut chart (wins/draws/losses)
-│   │   ├── GameCard.tsx       # Game list item card
-│   │   ├── StatCard.tsx       # Reusable stat display card
-│   │   └── ui/               # 21st.dev animated UI components
-│   │       ├── animated-card.tsx
-│   │       ├── animated-shiny-text.tsx
-│   │       ├── aurora-background.tsx
-│   │       ├── border-beam.tsx
-│   │       ├── chess-background.tsx
-│   │       ├── glow-effect.tsx
-│   │       ├── neon-gradient-card.tsx
-│   │       ├── number-ticker.tsx
-│   │       └── shimmer-button.tsx
+│   │   ├── ChessBoard.tsx   # SVG chess board renderer
+│   │   ├── DonutChart.tsx   # SVG donut chart
+│   │   ├── GameCard.tsx     # Game list item card
+│   │   ├── StatCard.tsx     # Reusable stat display card
+│   │   ├── ProgressHeader.tsx # XP/level progress indicator
+│   │   ├── WelcomeOverlay.tsx # Welcome modal for new plans
+│   │   ├── pro-only.tsx     # <ProOnly> wrapper + <ProBadge>
+│   │   ├── termly-embed.tsx # Termly legal page embed
+│   │   ├── auth/
+│   │   │   └── login-form.tsx # Google + Apple OAuth buttons
+│   │   └── ui/             # 21st.dev animated UI components (DO NOT MODIFY)
+│   ├── hooks/
+│   │   └── use-subscription.ts # useSubscription() — reads profile from Supabase
 │   └── lib/
-│       ├── ChessContext.tsx       # Global state: user, analysis, training plan, mutations
-│       ├── QueryProvider.tsx      # React Query client provider
-│       ├── chessApi.ts            # Chess.com + Lichess API fetchers
-│       ├── analysisEngine.ts      # Stats-based analysis (strengths, weaknesses, 6-axis scores)
-│       ├── diagnosticEngine.ts    # Deep player diagnostic (archetype, adaptive flags, tilt detection)
-│       ├── trainingPlanner.ts     # 8-week training plan generator with Chess OS document
-│       ├── gameAnalyzer.ts        # Stockfish-powered game analysis (blunders, mistakes, critical moments)
-│       ├── stockfishClient.ts     # Stockfish WASM Web Worker singleton wrapper
-│       ├── openingExplorer.ts     # Lichess Opening Explorer API (master game stats)
-│       ├── colors.ts              # Design system color constants
-│       ├── types.ts               # All TypeScript types/interfaces
-│       └── utils.ts               # cn() utility (clsx + tailwind-merge)
+│       ├── ChessContext.tsx     # Global state: user, analysis, training plan
+│       ├── QueryProvider.tsx    # React Query client provider
+│       ├── chessApi.ts          # Chess.com + Lichess API fetchers
+│       ├── analysisEngine.ts    # Stats-based analysis
+│       ├── diagnosticEngine.ts  # Player diagnostic + archetype detection
+│       ├── trainingPlanner.ts   # 8-week training plan generator
+│       ├── gameAnalyzer.ts      # Stockfish-powered game analysis
+│       ├── stockfishClient.ts   # Stockfish WASM Web Worker singleton
+│       ├── openingExplorer.ts   # Lichess Opening Explorer API
+│       ├── gamification.ts      # XP, levels, streaks, badges
+│       ├── check-subscription.ts # Server-side requirePro() helper
+│       ├── colors.ts            # Design system color constants
+│       ├── types.ts             # All TypeScript types/interfaces
+│       ├── utils.ts             # cn() utility
+│       └── supabase/
+│           ├── client.ts        # Browser Supabase client
+│           ├── server.ts        # Server Supabase client (cookie-aware)
+│           ├── service.ts       # Service role client (webhooks ONLY)
+│           └── middleware.ts    # Session refresh + route protection
 ```
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
-| `src/lib/ChessContext.tsx` | Central state management — all data flows through here |
+| `src/lib/ChessContext.tsx` | Central state management — all chess data flows through here |
 | `src/lib/chessApi.ts` | Chess.com and Lichess API integration |
 | `src/lib/analysisEngine.ts` | Stats-based analysis algorithm |
 | `src/lib/diagnosticEngine.ts` | Player diagnostic + archetype detection |
-| `src/lib/trainingPlanner.ts` | 8-week training plan generation |
-| `src/lib/gameAnalyzer.ts` | Stockfish engine analysis |
-| `src/lib/types.ts` | All shared TypeScript types |
+| `src/lib/trainingPlanner.ts` | 8-week training plan generation (largest file) |
+| `src/lib/supabase/middleware.ts` | Auth middleware — route protection logic |
+| `src/app/api/webhooks/lemonsqueezy/route.ts` | Payment webhook handler |
+| `src/hooks/use-subscription.ts` | Client-side subscription state |
 | `src/lib/colors.ts` | Design system color tokens |
-| `src/app/(app)/layout.tsx` | App shell with navigation |
 | `src/app/globals.css` | Tailwind theme tokens and animations |
 
-## Database
+## Data Storage
 
-**There is no database.** All state is stored in `localStorage` under these keys:
+### Supabase (auth + subscription)
+- `profiles` table — auto-created on signup, stores subscription_status, Lemon Squeezy IDs
+- `webhook_events` table — idempotency tracking for payment webhooks
+- RLS enabled: users can only read/update their own profile
 
+### localStorage (chess data)
 | Key | Data |
 |-----|------|
 | `chessmind_user` | `{ username, platform }` |
@@ -106,121 +131,89 @@ chessmind/
 
 ## API Routes
 
-All routes are `GET` and take `?username=X&platform=Y` query params.
-
-| Route | Does |
-|-------|------|
-| `/api/chess/profile` | Proxies Chess.com/Lichess player profile fetch |
-| `/api/chess/stats` | Proxies Chess.com/Lichess player stats (ratings) fetch |
-| `/api/chess/games` | Proxies Chess.com/Lichess recent games fetch (last 30 days, max 100) |
-
-API routes exist to keep external API calls server-side. No authentication.
+| Route | Method | Auth | Purpose |
+|-------|--------|------|---------|
+| `/api/chess/profile` | GET | Yes (middleware) | Proxy Chess.com/Lichess profile |
+| `/api/chess/stats` | GET | Yes (middleware) | Proxy Chess.com/Lichess ratings |
+| `/api/chess/games` | GET | Yes (middleware) | Proxy Chess.com/Lichess games |
+| `/api/checkout` | POST | Yes (explicit) | Create Lemon Squeezy checkout |
+| `/api/billing` | POST | Yes (explicit) | Get customer billing portal |
+| `/api/webhooks/lemonsqueezy` | POST | Signature | Handle subscription webhooks |
 
 ## External APIs
 
 ### Chess.com API
 - Base: `https://api.chess.com/pub`
 - Endpoints: `/player/{username}`, `/player/{username}/stats`, `/player/{username}/games/{YYYY}/{MM}`
-- Fetches last 2 months of games, filters to 30 days
-- Extracts: profile, ratings (rapid/blitz/bullet), games with PGN, accuracy, openings
-- Code: `src/lib/chessApi.ts` — `fetchChessComProfile()`, `fetchChessComStats()`, `fetchChessComGames()`
+- Code: `src/lib/chessApi.ts`
 
 ### Lichess API
 - Base: `https://lichess.org/api`
-- Endpoints: `/user/{username}`, `/games/user/{username}` (ndjson)
 - Uses `Accept: application/x-ndjson` for game streaming
-- Code: `src/lib/chessApi.ts` — `fetchLichessProfile()`, `fetchLichessStats()`, `fetchLichessGames()`
-
-### Lichess Opening Explorer
-- URL: `https://explorer.lichess.ovh/masters?fen={fen}`
-- Fetches master game statistics for opening positions
-- Has in-memory cache and 200ms delay between calls
-- Code: `src/lib/openingExplorer.ts`
+- Code: `src/lib/chessApi.ts`
 
 ### Stockfish (Browser)
 - Runs entirely in-browser via WASM Web Worker
-- Files: `public/stockfish-worker.js`, `public/stockfish.js`, `public/stockfish.wasm`
-- Singleton worker with promise-based evaluation
 - Default depth: 14 for game analysis, 18 for single position
 - Code: `src/lib/stockfishClient.ts`, `src/lib/gameAnalyzer.ts`
 
-**There is no Claude/Anthropic API integration.** All "AI" analysis is algorithmic (statistical analysis + Stockfish engine).
+**There is no Claude/Anthropic API integration.** All "AI" analysis is algorithmic.
 
 ## Naming Conventions
 
-- **Components:** PascalCase, default export, one component per file (`ChessBoard.tsx`, `GameCard.tsx`)
-- **Pages:** `page.tsx` within Next.js App Router folder structure, default export
-- **Hooks:** Exported from `ChessContext.tsx` as `useChess()`, `useProfile()`, `useStats()`, `useGames()`
+- **Components:** PascalCase (`ChessBoard.tsx`, `GameCard.tsx`)
+- **Pages:** `page.tsx` per App Router convention
+- **Hooks:** `useChess()`, `useProfile()`, `useStats()`, `useGames()` from ChessContext; `useSubscription()` from hooks/
 - **Lib files:** camelCase (`chessApi.ts`, `analysisEngine.ts`)
-- **Types:** PascalCase interfaces in `types.ts` (`ChessGame`, `AnalysisReport`, `TrainingPlan`)
-- **UI components:** kebab-case files in `components/ui/` (`animated-shiny-text.tsx`, `shimmer-button.tsx`)
-- **Colors:** Object exported as `Colors` from `colors.ts` — also mirrored as CSS custom properties in `globals.css`
+- **Types:** PascalCase interfaces in `types.ts`
+- **UI components:** kebab-case in `components/ui/` (DO NOT MODIFY)
+- **Colors:** `Colors` object from `colors.ts`, mirrored as CSS custom properties in `globals.css`
 - **localStorage keys:** `chessmind_` prefix with snake_case
 
 ## Current Feature Status
 
 ### Working:
-- Chess.com and Lichess account connection (username-only, no OAuth)
+- Google OAuth login (Apple Sign-In configured but requires Apple Developer setup)
+- Chess.com and Lichess account connection (username-only)
 - Game fetching with filtering (last 30 days, by result/time control)
-- Game detail view with board, moves, accuracy, template-based commentary
-- Statistical analysis engine (6-axis scores, strengths, weaknesses, playing style narrative)
-- Opening analysis with win rates and keep/improve/drop recommendations
-- Browser Stockfish engine analysis (blunders, mistakes, critical moments with board positions)
-- 8-week personalized training plan generation with archetype detection
-- Daily training modules with Lichess links, rationale, and completion tracking
-- Chess OS reference document (repertoire, endgame reference, pre-move ritual, tilt protocol)
-- Week-by-week progress tracking with visual indicators
-- Settings page with disconnect and data clearing
-- Responsive layout (sidebar on desktop, bottom tabs on mobile)
-- Aurora background, shimmer buttons, neon gradient cards, number tickers
+- Game detail view with board, moves, accuracy
+- Statistical analysis engine (6-axis scores, strengths, weaknesses)
+- Opening analysis with win rates
+- Browser Stockfish engine analysis
+- 8-week training plan generation (Pro-gated)
+- Gamification (XP, levels, streaks, badges)
+- Settings with sign out, subscription management
+- Responsive layout (sidebar desktop, bottom tabs mobile)
+- Legal pages (Termly embeds)
 
-### In Progress / Placeholder:
-- "Upgrade to Pro" button in settings (UI only, no functionality)
+### In Progress:
+- Lemon Squeezy account pending approval (checkout + webhook code ready)
 - Auto-sync toggle (UI only, no backend)
 - Training reminders toggle (UI only, no notifications)
-- AI Commentary in game detail is template-based, not actual AI analysis
 
 ### Known Issues / Do Not Touch:
-- Legacy 7-day training system (`trainingTasks`, `initTrainingMutation`) is kept for backward compatibility but unused by current UI — do not remove without checking all references
-- `eslint-disable` comments in `chessApi.ts` for Chess.com raw game parsing — intentional due to untyped API response
-
-## Established Patterns
-
-### API Route Pattern
-All API routes follow the same structure — validate query params, call `chessApi.ts` function, return JSON or error:
-```typescript
-export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const username = searchParams.get('username');
-  const platform = searchParams.get('platform') as Platform;
-  if (!username || !platform) return NextResponse.json({ error: '...' }, { status: 400 });
-  try {
-    const data = await fetchSomething(username, platform);
-    return NextResponse.json(data);
-  } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : 'Failed';
-    return NextResponse.json({ error: message }, { status: 400 });
-  }
-}
-```
-
-### State Management Pattern
-All global state lives in `ChessContext.tsx`. Data fetching uses React Query hooks exported alongside the context. Mutations handle loading/error states and persist results to `localStorage`. Components access state via `useChess()` and data via `useProfile()`, `useStats()`, `useGames()`.
-
-### UI Pattern
-Pages use framer-motion `stagger` + `fadeUp` animation variants. Cards use inline `style={{ backgroundColor: Colors.card, borderColor: Colors.border }}` alongside Tailwind classes. 21st.dev components (`ShimmerButton`, `NeonGradientCard`, `AnimatedShinyText`, `BorderBeam`, `NumberTicker`) are used for polish — they live in `components/ui/` and should not be modified.
+- Legacy 7-day training system (`trainingTasks`, `initTrainingMutation`) kept for backward compat
+- `eslint-disable` comments in `chessApi.ts` for Chess.com raw game parsing — intentional
 
 ## Critical Rules
 
-- **No database** — all data is client-side localStorage. Do not add Supabase or any DB.
-- **No auth** — the app uses username-only connection. Do not add authentication.
-- **No Claude/Anthropic API** — analysis is algorithmic. The "AI" label is marketing.
-- **Do not modify `components/ui/`** — these are 21st.dev community components, copied as-is.
-- **Keep API routes thin** — they are pure proxies to `chessApi.ts` functions. Business logic belongs in `lib/`.
-- **Colors must stay consistent** — use `Colors` import from `colors.ts` or Tailwind theme tokens from `globals.css`. Never hardcode color values in components.
-- **All chess API calls go through API routes** — never call Chess.com/Lichess directly from client components.
-- **Stockfish runs client-side only** — the WASM worker cannot run on the server.
-- **localStorage keys use `chessmind_` prefix** — maintain this convention.
+- **Do not modify `components/ui/`** — 21st.dev community components, copied as-is
+- **Service role key ONLY in webhook handlers** — never import `createServiceClient` in client code
+- **All Lemon Squeezy calls are server-side only** — API key never touches the browser
+- **Webhook signature verification is non-negotiable** — HMAC-SHA256 + timingSafeEqual
+- **Colors must stay consistent** — use `Colors` import or Tailwind theme tokens
+- **All chess API calls go through API routes** — never call Chess.com/Lichess directly from client
+- **Stockfish runs client-side only** — WASM worker cannot run on server
+- **localStorage keys use `chessmind_` prefix**
+
+## Environment Variables
+
+See `.env.example` for all required variables:
+- `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` — Supabase project
+- `SUPABASE_SERVICE_ROLE_KEY` — Server-side only, bypasses RLS
+- `LEMONSQUEEZY_API_KEY` / `LEMONSQUEEZY_STORE_ID` / `LEMONSQUEEZY_WEBHOOK_SECRET` / `LEMONSQUEEZY_VARIANT_ID` — Payments
+- `NEXT_PUBLIC_TERMLY_WEBSITE_UUID` — Legal pages
+- `NEXT_PUBLIC_APP_URL` — App base URL
 
 ## Commands
 
@@ -230,7 +223,3 @@ build: next build
 start: next start
 lint:  eslint
 ```
-
-## Environment Variables
-
-None. The app has no `.env` file and references no environment variables. All API endpoints (Chess.com, Lichess) are public and hardcoded in `chessApi.ts` and `openingExplorer.ts`.
